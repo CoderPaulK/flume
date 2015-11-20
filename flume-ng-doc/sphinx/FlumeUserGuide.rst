@@ -15,7 +15,7 @@
 
 
 ======================================
-Flume 1.6.0-SNAPSHOT User Guide
+Flume 1.7.0-SNAPSHOT User Guide
 ======================================
 
 Introduction
@@ -233,6 +233,31 @@ The original Flume terminal will output the event in a log message.
   12/06/19 15:32:34 INFO sink.LoggerSink: Event: { headers:{} body: 48 65 6C 6C 6F 20 77 6F 72 6C 64 21 0D          Hello world!. }
 
 Congratulations - you've successfully configured and deployed a Flume agent! Subsequent sections cover agent configuration in much more detail.
+
+
+Zookeeper based Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Flume supports Agent configurations via Zookeeper. *This is an experimental feature.* The configuration file needs to be uploaded
+in the Zookeeper, under a configurable prefix. The configuration file is stored in Zookeeper Node data.
+Following is how the Zookeeper Node tree would look like for agents a1 and a2
+
+.. code-block:: properties
+
+  - /flume
+   |- /a1 [Agent config file]
+   |- /a2 [Agent config file]
+
+Once the configuration file is uploaded, start the agent with following options
+
+  $ bin/flume-ng agent --conf conf -z zkhost:2181,zkhost1:2181 -p /flume --name a1 -Dflume.root.logger=INFO,console
+
+==================   ================  =========================================================================
+Argument Name        Default           Description
+==================   ================  =========================================================================
+**z**                --                Zookeeper connection string. Comma separated list of hostname:port
+**p**                /flume            Base Path in Zookeeper to store Agent configurations
+==================   ================  =========================================================================
 
 Installing third-party plugins
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -707,7 +732,7 @@ keystore-password    --                The password for the Java keystore. Requi
 keystore-type        JKS               The type of the Java keystore. This can be "JKS" or "PKCS12".
 exclude-protocols    SSLv3             Space-separated list of SSL/TLS protocols to exclude. SSLv3 will always be excluded in addition to the protocols specified.
 ipFilter             false             Set this to true to enable ipFiltering for netty
-ipFilter.rules       --                Define N netty ipFilter pattern rules with this config.
+ipFilterRules        --                Define N netty ipFilter pattern rules with this config.
 ==================   ================  ===================================================
 
 Example for agent named a1:
@@ -721,15 +746,15 @@ Example for agent named a1:
   a1.sources.r1.bind = 0.0.0.0
   a1.sources.r1.port = 4141
 
-Example of ipFilter.rules
+Example of ipFilterRules
 
-ipFilter.rules defines N netty ipFilters separated by a comma a pattern rule must be in this format.
+ipFilterRules defines N netty ipFilters separated by a comma a pattern rule must be in this format.
 
 <'allow' or deny>:<'ip' or 'name' for computer name>:<pattern>
 or
 allow/deny:ip/name:pattern
 
-example: ipFilter.rules=allow:ip:127.*,allow:name:localhost,deny:ip:*
+example: ipFilterRules=allow:ip:127.*,allow:name:localhost,deny:ip:*
 
 Note that the first rule to match will apply as the example below shows from a client on the localhost
 
@@ -742,6 +767,9 @@ Thrift Source
 Listens on Thrift port and receives events from external Thrift client streams.
 When paired with the built-in ThriftSink on another (previous hop) Flume agent,
 it can create tiered collection topologies.
+Thrift source can be configured to start in secure mode by enabling kerberos authentication.
+agent-principal and agent-keytab are the properties used by the
+Thrift source to authenticate to the kerberos KDC.
 Required properties are in **bold**.
 
 ==================   ===========  ===================================================
@@ -756,6 +784,14 @@ selector.type
 selector.*
 interceptors         --           Space separated list of interceptors
 interceptors.*
+ssl                  false        Set this to true to enable SSL encryption. You must also specify a "keystore" and a "keystore-password".
+keystore             --           This is the path to a Java keystore file. Required for SSL.
+keystore-password    --           The password for the Java keystore. Required for SSL.
+keystore-type        JKS          The type of the Java keystore. This can be "JKS" or "PKCS12".
+exclude-protocols    SSLv3        Space-separated list of SSL/TLS protocols to exclude. SSLv3 will always be excluded in addition to the protocols specified.
+kerberos             false        Set to true to enable kerberos authentication. In kerberos mode, agent-principal and agent-keytab  are required for successful authentication. The Thrift source in secure mode, will accept connections only from Thrift clients that have kerberos enabled and are successfully authenticated to the kerberos KDC.
+agent-principal      --           The kerberos principal used by the Thrift Source to authenticate to the kerberos KDC.
+agent-keytab         —-           The keytab location used by the Thrift Source in combination with the agent-principal to authenticate to the kerberos KDC.
 ==================   ===========  ===================================================
 
 Example for agent named a1:
@@ -958,7 +994,7 @@ trackerDir            .flumespool     Directory to store metadata related to pro
 consumeOrder          oldest          In which order files in the spooling directory will be consumed ``oldest``,
                                       ``youngest`` and ``random``. In case of ``oldest`` and ``youngest``, the last modified
                                       time of the files will be used to compare the files. In case of a tie, the file
-                                      with smallest laxicographical order will be consumed first. In case of ``random`` any
+                                      with smallest lexicographical order will be consumed first. In case of ``random`` any
                                       file will be picked randomly. When using ``oldest`` and ``youngest`` the whole
                                       directory will be scanned to pick the oldest/youngest file, which might be slow if there
                                       are a large number of files, while using ``random`` may cause old files to be consumed
@@ -1054,6 +1090,59 @@ Property Name               Default             Description
 deserializer.maxBlobLength  100000000           The maximum number of bytes to read and buffer for a given request
 ==========================  ==================  =======================================================================
 
+Taildir Source
+~~~~~~~~~~~~~~~~~~~~~~~~~
+.. note:: **This source is provided as a preview feature. It does not work on Windows.** This source requires Java version 1.7 or later.
+
+Watch the specified files, and tail them in nearly real-time once detected new lines appended to the each files.
+If the new lines are being written, this source will retry reading them in wait for the completion of the write.
+
+This source is reliable and will not miss data even when the tailing files rotate.
+It periodically writes the last read position of each files on the given position file in JSON format.
+If Flume is stopped or down for some reason, it can restart tailing from the position written on the existing position file.
+
+In other use case, this source can also start tailing from the arbitrary position for each files using the given position file.
+When there is no position file on the specified path, it will start tailing from the first line of each files by default.
+
+Files will be consumed in order of their modification time. File with the oldest modification time will be consumed first.
+
+This source does not rename or delete or do any modifications to the file being tailed.
+Currently this source does not support tailing binary files. It reads text files line by line.
+
+=================================== ============================== ===================================================
+Property Name                       Default                        Description
+=================================== ============================== ===================================================
+**channels**                        --
+**type**                            --                             The component type name, needs to be ``TAILDIR``.
+**filegroups**                      --                             Space-separated list of file groups. Each file group indicates a set of files to be tailed.
+**filegroups.<filegroupName>**      --                             Absolute path of the file group. Regular expression (and not file system patterns) can be used for filename only.
+positionFile                        ~/.flume/taildir_position.json File in JSON format to record the inode, the absolute path and the last position of each tailing file.
+headers.<filegroupName>.<headerKey> --                             Header value which is the set with header key. Multiple headers can be specified for one file group.
+byteOffsetHeader                    false                          Whether to add the byte offset of a tailed line to a header called 'byteoffset'.
+skipToEnd                           false                          Whether to skip the position to EOF in the case of files not written on the position file.
+idleTimeout                         120000                         Time (ms) to close inactive files. If the closed file is appended new lines to, this source will automatically re-open it.
+writePosInterval                    3000                           Interval time (ms) to write the last position of each file on the position file.
+batchSize                           100                            Max number of lines to read and send to the channel at a time. Using the default is usually fine.
+backoffSleepIncrement               1000                           The increment for time delay before reattempting to poll for new data, when the last attempt did not find any new data.
+maxBackoffSleep                     5000                           The max time delay between each reattempt to poll for new data, when the last attempt did not find any new data.
+=================================== ============================== ===================================================
+
+Example for agent named a1:
+
+.. code-block:: properties
+
+  a1.sources = r1
+  a1.channels = c1
+  a1.sources.r1.type = TAILDIR
+  a1.sources.r1.channels = c1
+  a1.sources.r1.positionFile = /var/log/flume/taildir_position.json
+  a1.sources.r1.filegroups = f1 f2
+  a1.sources.r1.filegroups.f1 = /var/log/test1/example.log
+  a1.sources.r1.headers.f1.headerKey1 = value1
+  a1.sources.r1.filegroups.f2 = /var/log/test2/.*log.*
+  a1.sources.r1.headers.f2.headerKey1 = value2
+  a1.sources.r1.headers.f2.headerKey2 = value2-2
+
 Twitter 1% firehose Source (experimental)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1116,6 +1205,13 @@ Property Name                    Default      Description
 batchSize                        1000         Maximum number of messages written to Channel in one batch
 batchDurationMillis              1000         Maximum time (in ms) before a batch will be written to Channel
                                               The batch will be written whenever the first of size and time will be reached.
+backoffSleepIncrement            1000         Initial and incremental wait time that is triggered when a Kafka Topic appears to be empty.
+                                              Wait period will reduce aggressive pinging of an empty Kafka Topic.  One second is ideal for
+                                              ingestion use cases but a lower value may be required for low latency operations with
+                                              interceptors.
+maxBackoffSleep                  5000         Maximum wait time that is triggered when a Kafka Topic appears to be empty.  Five seconds is
+                                              ideal for ingestion use cases but a lower value may be required for low latency operations
+                                              with interceptors.
 Other Kafka Consumer Properties  --           These properties are used to configure the Kafka Consumer. Any producer property supported
                                               by Kafka can be used. The only requirement is to prepend the property name with the prefix ``kafka.``.
                                               For example: kafka.consumer.timeout.ms
@@ -1628,12 +1724,14 @@ Alias      Description
 %B         locale's long month name (January, February, ...)
 %c         locale's date and time (Thu Mar 3 23:05:25 2005)
 %d         day of month (01)
+%e         day of month without padding (1)
 %D         date; same as %m/%d/%y
 %H         hour (00..23)
 %I         hour (01..12)
 %j         day of year (001..366)
 %k         hour ( 0..23)
 %m         month (01..12)
+%n         month without padding (1..12)
 %M         minute (00..59)
 %p         locale's equivalent of am or pm
 %s         seconds since 1970-01-01 00:00:00 UTC
@@ -1690,10 +1788,10 @@ hdfs.roundValue         1             Rounded down to the highest multiple of th
 hdfs.roundUnit          second        The unit of the round down value - ``second``, ``minute`` or ``hour``.
 hdfs.timeZone           Local Time    Name of the timezone that should be used for resolving the directory path, e.g. America/Los_Angeles.
 hdfs.useLocalTimeStamp  false         Use the local time (instead of the timestamp from the event header) while replacing the escape sequences.
-hdfs.closeTries         0             Number of times the sink must try to close a file. If set to 1, this sink will not re-try a failed close
+hdfs.closeTries         0             Number of times the sink must try renaming a file, after initiating a close attempt. If set to 1, this sink will not re-try a failed rename
                                       (due to, for example, NameNode or DataNode failure), and may leave the file in an open state with a .tmp extension.
-                                      If set to 0, the sink will try to close the file until the file is eventually closed
-                                      (there is no limit on the number of times it would try).
+                                      If set to 0, the sink will try to rename the file until the file is eventually renamed (there is no limit on the number of times it would try).
+                                      The file may still remain open if the close call fails but the data will be intact and in this case, the file will be closed only after a Flume restart.
 hdfs.retryInterval      180           Time in seconds between consecutive attempts to close a file. Each close call costs multiple RPC round-trips to the Namenode,
                                       so setting this too low can cause a lot of load on the name node. If set to 0 or less, the sink will not
                                       attempt to close the file if the first attempt fails, and may leave the file open or with a ".tmp" extension.
@@ -1719,6 +1817,149 @@ Example for agent named a1:
 
 The above configuration will round down the timestamp to the last 10th minute. For example, an event with
 timestamp 11:54:34 AM, June 12, 2012 will cause the hdfs path to become ``/flume/events/2012-06-12/1150/00``.
+
+
+Hive Sink
+~~~~~~~~~
+
+This sink streams events containing delimited text or JSON data directly into a Hive table or partition.
+Events are written using Hive transactions. As soon as a set of events are committed to Hive, they become
+immediately visible to Hive queries. Partitions to which flume will stream to can either be pre-created
+or, optionally, Flume can create them if they are missing. Fields from incoming event data are mapped to
+corresponding columns in the Hive table. **This sink is provided as a preview feature and not recommended
+for use in production.**
+
+======================    ============  ======================================================================
+Name                      Default       Description
+======================    ============  ======================================================================
+**channel**               --
+**type**                  --            The component type name, needs to be ``hive``
+**hive.metastore**        --            Hive metastore URI (eg thrift://a.b.com:9083 )
+**hive.database**         --            Hive database name
+**hive.table**            --            Hive table name
+hive.partition            --            Comma separate list of partition values identifying the partition to write to. May contain escape
+                                        sequences. E.g: If the table is partitioned by (continent: string, country :string, time : string)
+                                        then 'Asia,India,2014-02-26-01-21' will indicate continent=Asia,country=India,time=2014-02-26-01-21
+hive.txnsPerBatchAsk      100           Hive grants a *batch of transactions* instead of single transactions to streaming clients like Flume.
+                                        This setting configures the number of desired transactions per Transaction Batch. Data from all
+                                        transactions in a single batch end up in a single file. Flume will write a maximum of batchSize events
+                                        in each transaction in the batch. This setting in conjunction with batchSize provides control over the
+                                        size of each file. Note that eventually Hive will transparently compact these files into larger files.
+heartBeatInterval         240           (In seconds) Interval between consecutive heartbeats sent to Hive to keep unused transactions from expiring.
+                                        Set this value to 0 to disable heartbeats.
+autoCreatePartitions      true          Flume will automatically create the necessary Hive partitions to stream to
+batchSize                 15000         Max number of events written to Hive in a single Hive transaction
+maxOpenConnections        500           Allow only this number of open connections. If this number is exceeded, the least recently used connection is closed.
+callTimeout               10000         (In milliseconds) Timeout for Hive & HDFS I/O operations, such as openTxn, write, commit, abort.
+**serializer**                          Serializer is responsible for parsing out field from the event and mapping them to columns in the hive table.
+                                        Choice of serializer depends upon the format of the data in the event. Supported serializers: DELIMITED and JSON
+roundUnit                 minute        The unit of the round down value - ``second``, ``minute`` or ``hour``.
+roundValue                1             Rounded down to the highest multiple of this (in the unit configured using hive.roundUnit), less than current time
+timeZone                  Local Time    Name of the timezone that should be used for resolving the escape sequences in partition, e.g. America/Los_Angeles.
+useLocalTimeStamp         false         Use the local time (instead of the timestamp from the event header) while replacing the escape sequences.
+======================    ============  ======================================================================
+
+Following serializers are provided for Hive sink:
+
+**JSON**: Handles UTF8 encoded Json (strict syntax) events and requires no configration. Object names
+in the JSON are mapped directly to columns with the same name in the Hive table.
+Internally uses org.apache.hive.hcatalog.data.JsonSerDe but is independent of the Serde of the Hive table.
+This serializer requires HCatalog to be installed.
+
+**DELIMITED**: Handles simple delimited textual events.
+Internally uses LazySimpleSerde but is independent of the Serde of the Hive table.
+
+==========================    ============  ======================================================================
+Name                          Default       Description
+==========================    ============  ======================================================================
+serializer.delimiter          ,             (Type: string) The field delimiter in the incoming data. To use special
+                                            characters, surround them with double quotes like "\\t"
+**serializer.fieldnames**     --            The mapping from input fields to columns in hive table. Specified as a
+                                            comma separated list (no spaces) of hive table columns names, identifying
+                                            the input fields in order of their occurrence. To skip fields leave the
+                                            column name unspecified. Eg. 'time,,ip,message' indicates the 1st, 3rd
+                                            and 4th fields in input map to time, ip and message columns in the hive table.
+serializer.serdeSeparator     Ctrl-A        (Type: character) Customizes the separator used by underlying serde. There
+                                            can be a gain in efficiency if the fields in serializer.fieldnames are in
+                                            same order as table columns, the serializer.delimiter is same as the
+                                            serializer.serdeSeparator and number of fields in serializer.fieldnames
+                                            is less than or equal to number of table columns, as the fields in incoming
+                                            event body do not need to be reordered to match order of table columns.
+                                            Use single quotes for special characters like '\\t'.
+                                            Ensure input fields do not contain this character. NOTE: If serializer.delimiter
+                                            is a single character, preferably set this to the same character
+==========================    ============  ======================================================================
+
+
+The following are the escape sequences supported:
+
+=========  =================================================
+Alias      Description
+=========  =================================================
+%{host}    Substitute value of event header named "host". Arbitrary header names are supported.
+%t         Unix time in milliseconds
+%a         locale's short weekday name (Mon, Tue, ...)
+%A         locale's full weekday name (Monday, Tuesday, ...)
+%b         locale's short month name (Jan, Feb, ...)
+%B         locale's long month name (January, February, ...)
+%c         locale's date and time (Thu Mar 3 23:05:25 2005)
+%d         day of month (01)
+%D         date; same as %m/%d/%y
+%H         hour (00..23)
+%I         hour (01..12)
+%j         day of year (001..366)
+%k         hour ( 0..23)
+%m         month (01..12)
+%M         minute (00..59)
+%p         locale's equivalent of am or pm
+%s         seconds since 1970-01-01 00:00:00 UTC
+%S         second (00..59)
+%y         last two digits of year (00..99)
+%Y         year (2010)
+%z         +hhmm numeric timezone (for example, -0400)
+=========  =================================================
+
+
+.. note:: For all of the time related escape sequences, a header with the key
+          "timestamp" must exist among the headers of the event (unless ``useLocalTimeStamp`` is set to ``true``). One way to add
+          this automatically is to use the TimestampInterceptor.
+
+Example Hive table :
+
+.. code-block:: properties
+
+ create table weblogs ( id int , msg string )
+     partitioned by (continent string, country string, time string)
+     clustered by (id) into 5 buckets
+     stored as orc;
+
+Example for agent named a1:
+
+.. code-block:: properties
+
+ a1.channels = c1
+ a1.channels.c1.type = memory
+ a1.sinks = k1
+ a1.sinks.k1.type = hive
+ a1.sinks.k1.channel = c1
+ a1.sinks.k1.hive.metastore = thrift://127.0.0.1:9083
+ a1.sinks.k1.hive.database = logsdb
+ a1.sinks.k1.hive.table = weblogs
+ a1.sinks.k1.hive.partition = asia,%{country},%y-%m-%d-%H-%M
+ a1.sinks.k1.useLocalTimeStamp = false
+ a1.sinks.k1.round = true
+ a1.sinks.k1.roundValue = 10
+ a1.sinks.k1.roundUnit = minute
+ a1.sinks.k1.serializer = DELIMITED
+ a1.sinks.k1.serializer.delimiter = "\t"
+ a1.sinks.k1.serializer.serdeSeparator = '\t'
+ a1.sinks.k1.serializer.fieldnames =id,,msg
+
+
+The above configuration will round down the timestamp to the last 10th minute. For example, an event with
+timestamp header set to 11:54:34 AM, June 12, 2012 and 'country' header set to 'india' will evaluate to the
+partition (continent='asia',country='india',time='2012-06-12-11-50'. The serializer is configured to
+accept tab separated input containing three fields and to skip the second field.
 
 
 Logger Sink
@@ -1771,7 +2012,7 @@ trust-all-certs              false                                              
 truststore                   --                                                     The path to a custom Java truststore file. Flume uses the certificate authority information in this file to determine whether the remote Avro Source's SSL authentication credentials should be trusted. If not specified, the default Java JSSE certificate authority files (typically "jssecacerts" or "cacerts" in the Oracle JRE) will be used.
 truststore-password          --                                                     The password for the specified truststore.
 truststore-type              JKS                                                    The type of the Java truststore. This can be "JKS" or other supported Java truststore type.
-exclude-protocols            SSLv2Hello SSLv3                                       Space-separated list of SSL/TLS protocols to exclude
+exclude-protocols            SSLv3                                                  Space-separated list of SSL/TLS protocols to exclude. SSLv3 will always be excluded in addition to the protocols specified.
 maxIoWorkers                 2 * the number of available processors in the machine  The maximum number of I/O worker threads. This is configured on the NettyAvroRpcClient NioClientSocketChannelFactory.
 ==========================   =====================================================  ===========================================================================================
 
@@ -1793,6 +2034,12 @@ This sink forms one half of Flume's tiered collection support. Flume events
 sent to this sink are turned into Thrift events and sent to the configured
 hostname / port pair. The events are taken from the configured Channel in
 batches of the configured batch size.
+
+Thrift sink can be configured to start in secure mode by enabling kerberos authentication.
+To communicate with a Thrift source started in secure mode, the Thrift sink should also
+operate in secure mode. client-principal and client-keytab are the properties used by the
+Thrift sink to authenticate to the kerberos KDC. The server-principal represents the
+principal of the Thrift source this sink is configured to connect to in secure mode.
 Required properties are in **bold**.
 
 ==========================   =======  ==============================================
@@ -1806,6 +2053,15 @@ batch-size                   100      number of event to batch together for send
 connect-timeout              20000    Amount of time (ms) to allow for the first (handshake) request.
 request-timeout              20000    Amount of time (ms) to allow for requests after the first.
 connection-reset-interval    none     Amount of time (s) before the connection to the next hop is reset. This will force the Thrift Sink to reconnect to the next hop. This will allow the sink to connect to hosts behind a hardware load-balancer when news hosts are added without having to restart the agent.
+ssl                          false    Set to true to enable SSL for this ThriftSink. When configuring SSL, you can optionally set a "truststore", "truststore-password" and "truststore-type"
+truststore                   --       The path to a custom Java truststore file. Flume uses the certificate authority information in this file to determine whether the remote Thrift Source's SSL authentication credentials should be trusted. If not specified, the default Java JSSE certificate authority files (typically "jssecacerts" or "cacerts" in the Oracle JRE) will be used.
+truststore-password          --       The password for the specified truststore.
+truststore-type              JKS      The type of the Java truststore. This can be "JKS" or other supported Java truststore type.
+exclude-protocols            SSLv3    Space-separated list of SSL/TLS protocols to exclude
+kerberos                     false    Set to true to enable kerberos authentication. In kerberos mode, client-principal, client-keytab and server-principal are required for successful authentication and communication to a kerberos enabled Thrift Source.
+client-principal             —-       The kerberos principal used by the Thrift Sink to authenticate to the kerberos KDC.
+client-keytab                —-       The keytab location used by the Thrift Sink in combination with the client-principal to authenticate to the kerberos KDC.
+server-principal             --       The kerberos principal of the Thrift Source to which the Thrift Sink is configured to connect to.
 ==========================   =======  ==============================================
 
 Example for agent named a1:
@@ -2045,17 +2301,20 @@ The type is the FQCN: org.apache.flume.sink.solr.morphline.MorphlineSolrSink
 
 Required properties are in **bold**.
 
-===================  =======================================================================  ========================
-Property Name        Default                                                                  Description
-===================  =======================================================================  ========================
-**channel**          --
-**type**             --                                                                       The component type name, needs to be ``org.apache.flume.sink.solr.morphline.MorphlineSolrSink``
-**morphlineFile**    --                                                                       The relative or absolute path on the local file system to the morphline configuration file. Example: ``/etc/flume-ng/conf/morphline.conf``
-morphlineId          null                                                                     Optional name used to identify a morphline if there are multiple morphlines in a morphline config file
-batchSize            1000                                                                     The maximum number of events to take per flume transaction.
-batchDurationMillis  1000                                                                     The maximum duration per flume transaction (ms). The transaction commits after this duration or when batchSize is exceeded, whichever comes first.
-handlerClass         org.apache.flume.sink.solr.morphline.MorphlineHandlerImpl                The FQCN of a class implementing org.apache.flume.sink.solr.morphline.MorphlineHandler
-===================  =======================================================================  ========================
+===============================   =======================================================================  ========================
+Property Name                     Default                                                                  Description
+===============================   =======================================================================  ========================
+**channel**                       --
+**type**                          --                                                                       The component type name, needs to be ``org.apache.flume.sink.solr.morphline.MorphlineSolrSink``
+**morphlineFile**                 --                                                                       The relative or absolute path on the local file system to the morphline configuration file. Example: ``/etc/flume-ng/conf/morphline.conf``
+morphlineId                       null                                                                     Optional name used to identify a morphline if there are multiple morphlines in a morphline config file
+batchSize                         1000                                                                     The maximum number of events to take per flume transaction.
+batchDurationMillis               1000                                                                     The maximum duration per flume transaction (ms). The transaction commits after this duration or when batchSize is exceeded, whichever comes first.
+handlerClass                      org.apache.flume.sink.solr.morphline.MorphlineHandlerImpl                The FQCN of a class implementing org.apache.flume.sink.solr.morphline.MorphlineHandler
+isProductionMode                  false                                                                    This flag should be enabled for mission critical, large-scale online production systems that need to make progress without downtime when unrecoverable exceptions occur. Corrupt or malformed parser input data, parser bugs, and errors related to unknown Solr schema fields produce unrecoverable exceptions.
+recoverableExceptionClasses       org.apache.solr.client.solrj.SolrServerException                         Comma separated list of recoverable exceptions that tend to be transient, in which case the corresponding task can be retried. Examples include network connection errors, timeouts, etc. When the production mode flag is set to true, the recoverable exceptions configured using this parameter will not be ignored and hence will lead to retries.
+isIgnoringRecoverableExceptions   false                                                                    This flag should be enabled, if an unrecoverable exception is accidentally misclassified as recoverable. This enables the sink to make progress and avoid retrying an event forever.
+===============================   =======================================================================  ========================
 
 Example for agent named a1:
 
@@ -2442,6 +2701,7 @@ capacity                                          1000000                       
 keep-alive                                        3                                 Amount of time (in sec) to wait for a put operation
 use-log-replay-v1                                 false                             Expert: Use old replay logic
 use-fast-replay                                   false                             Expert: Replay without using queue
+checkpointOnClose                                 true                              Controls if a checkpoint is created when the channel is closed. Creating a checkpoint on close speeds up subsequent startup of the file channel by avoiding replay.
 encryption.activeKey                              --                                Key name used to encrypt new data
 encryption.cipherProvider                         --                                Cipher provider type, supported types: AESCTRNOPADDING
 encryption.keyProvider                            --                                Key provider type, supported types: JCEKSFILE
@@ -3223,7 +3483,7 @@ Log4J Appender
 
 Appends Log4j events to a flume agent's avro source. A client using this
 appender must have the flume-ng-sdk in the classpath (eg,
-flume-ng-sdk-1.6.0-SNAPSHOT.jar).
+flume-ng-sdk-1.7.0-SNAPSHOT.jar).
 Required properties are in **bold**.
 
 =====================  =======  ==================================================================================
@@ -3287,7 +3547,7 @@ Load Balancing Log4J Appender
 
 Appends Log4j events to a list of flume agent's avro source. A client using this
 appender must have the flume-ng-sdk in the classpath (eg,
-flume-ng-sdk-1.6.0-SNAPSHOT.jar). This appender supports a round-robin and random
+flume-ng-sdk-1.7.0-SNAPSHOT.jar). This appender supports a round-robin and random
 scheme for performing the load balancing. It also supports a configurable backoff
 timeout so that down agents are removed temporarily from the set of hosts
 Required properties are in **bold**.
@@ -3352,9 +3612,14 @@ Sample log4j.properties file configured using backoff:
 Security
 ========
 
-The HDFS sink supports Kerberos authentication if the underlying HDFS is
-running in secure mode. Please refer to the HDFS Sink section for
-configuring the HDFS sink Kerberos-related options.
+The HDFS sink, HBase sink, Thrift source, Thrift sink and Kite Dataset sink all support
+Kerberos authentication. Please refer to the corresponding sections for
+configuring the Kerberos-related options.
+
+Flume agent will authenticate to the kerberos KDC as a single principal, which will be
+used by different components that require kerberos authentication. The principal and
+keytab configured for Thrift source, Thrift sink, HDFS sink, HBase sink and DataSet sink
+should be the same, otherwise the component will fail to start.
 
 Monitoring
 ==========
@@ -3521,6 +3786,92 @@ metrics as long values.
       return increment(COUNTER_CONNECTION_CREATED);
     }
 
+  }
+
+Tools
+=====
+
+File Channel Integrity Tool
+---------------------------
+
+File Channel Integrity tool verifies the integrity of individual Events in the File channel
+and removes corrupted Events.
+
+The tools can be run as follows::
+
+  $bin/flume-ng tool --conf ./conf FCINTEGRITYTOOL -l ./datadir
+
+where datadir is the comma separated list of data directory to be verified.
+
+Following are the options available
+
+=======================  ====================================================================
+Option Name              Description
+=======================  ====================================================================
+h/help                   Displays help
+**l/dataDirs**           Comma-separated list of data directories which the tool must verify
+=======================  ====================================================================
+
+Event Validator Tool
+--------------------
+
+Event validator tool can be used to validate the File Channel Event's in application specific way.
+The tool applies the user provider validation login on each event and drop the event which do not
+confirm to the logic.
+
+The tools can be run as follows::
+
+  $bin/flume-ng tool --conf ./conf FCINTEGRITYTOOL -l ./datadir -e org.apache.flume.MyEventValidator -DmaxSize 2000
+
+where datadir is the comma separated list of data directory to be verified.
+
+Following are the options available
+
+=======================  ====================================================================
+Option Name              Description
+=======================  ====================================================================
+h/help                   Displays help
+**l/dataDirs**           Comma-separated list of data directories which the tool must verify
+e/eventValidator         Fully Qualified Name of Event Validator Implementation. The jar must
+                         be on Flume classpath
+=======================  ====================================================================
+
+The Event validator implementation must implement EventValidator interface. It's recommended
+not to throw any exception from the implementation as they are treated as invalid events.
+Additional parameters can be passed to EventValitor implementation via -D options.
+
+Let's see an example of simple size based Event Validator, which shall reject event's larger
+than maximum size specified.
+
+.. code-block:: java
+
+  public static class MyEventValidator implements EventValidator {
+
+    private int value = 0;
+
+    private MyEventValidator(int val) {
+      value = val;
+    }
+
+    @Override
+    public boolean validateEvent(Event event) {
+      return event.getBody() <= value;
+    }
+
+    public static class Builder implements EventValidator.Builder {
+
+      private int sizeValidator = 0;
+
+      @Override
+      public EventValidator build() {
+        return new DummyEventVerifier(sizeValidator);
+      }
+
+      @Override
+      public void configure(Context context) {
+        binaryValidator = context.getInteger("maxSize");
+      }
+    }
   }
 
 

@@ -27,7 +27,7 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.apache.flume</groupId>
   <artifactId>flume-parent</artifactId>
-  <version>1.6.0-SNAPSHOT</version>
+  <version>1.7.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Apache Flume</name>
@@ -48,11 +48,12 @@ limitations under the License.
 
     <avro.version>1.7.4</avro.version>
     <elasticsearch.version>0.90.1</elasticsearch.version>
-
     <hadoop2.version>2.4.0</hadoop2.version>
     <thrift.version>0.7.0</thrift.version>
-    <kite.version>0.17.1</kite.version>
-    <hive.version>0.10.0</hive.version>
+    <kite.version>1.0.0</kite.version>
+    <hive.version>1.0.0</hive.version>
+    <xalan.verion>2.7.1</xalan.verion>
+    <xerces.version>2.9.1</xerces.version>
   </properties>
 
   <modules>
@@ -69,6 +70,7 @@ limitations under the License.
     <module>flume-ng-sdk</module>
     <module>flume-ng-tests</module>
     <module>flume-tools</module>
+    <module>flume-ng-auth</module>
   </modules>
 
   <profiles>
@@ -77,11 +79,12 @@ limitations under the License.
       <id>hadoop-1.0</id>
       <activation>
         <property>
-          <name>!hadoop.profile</name>
+          <name>flume.hadoop.profile</name>
+          <value>1</value>
         </property>
       </activation>
       <properties>
-        <hadoop.version>1.0.1</hadoop.version>
+        <hadoop.version>1.2.1</hadoop.version>
         <hbase.version>0.92.1</hbase.version>
         <hadoop.common.artifact.id>hadoop-core</hadoop.common.artifact.id>
         <thrift.version>0.7.0</thrift.version>
@@ -125,7 +128,7 @@ limitations under the License.
       <id>hadoop-2</id>
       <activation>
         <property>
-          <name>hadoop.profile</name>
+          <name>flume.hadoop.profile</name>
           <value>2</value>
         </property>
       </activation>
@@ -133,7 +136,7 @@ limitations under the License.
         <hadoop.version>${hadoop2.version}</hadoop.version>
         <hbase.version>0.94.2</hbase.version>
         <hadoop.common.artifact.id>hadoop-common</hadoop.common.artifact.id>
-        <thrift.version>0.8.0</thrift.version>
+        <thrift.version>0.9.0</thrift.version>
       </properties>
       <dependencyManagement>
         <dependencies>
@@ -145,6 +148,11 @@ limitations under the License.
           <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
+            <version>${hadoop.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
             <version>${hadoop.version}</version>
           </dependency>
           <dependency>
@@ -193,25 +201,24 @@ limitations under the License.
           <dependency>
             <groupId>org.apache.flume.flume-ng-sinks</groupId>
             <artifactId>flume-dataset-sink</artifactId>
-            <version>1.6.0-SNAPSHOT</version>
+            <version>1.7.0-SNAPSHOT</version>
           </dependency>
         </dependencies>
       </dependencyManagement>
     </profile>
 
     <profile>
-      <id>hbase-98</id>
+      <id>hbase-1</id>
       <activation>
         <property>
-          <name>hadoop.profile</name>
-          <value>hbase-98</value>
+          <name>!flume.hadoop.profile</name>
         </property>
       </activation>
       <properties>
         <hadoop.version>${hadoop2.version}</hadoop.version>
-        <hbase.version>0.98.2-hadoop2</hbase.version>
+        <hbase.version>1.0.0</hbase.version>
         <hadoop.common.artifact.id>hadoop-common</hadoop.common.artifact.id>
-        <thrift.version>0.8.0</thrift.version>
+        <thrift.version>0.9.0</thrift.version>
       </properties>
       <dependencyManagement>
         <dependencies>
@@ -380,6 +387,13 @@ limitations under the License.
 
       <build>
         <plugins>
+
+          <plugin>
+            <groupId>org.apache.felix</groupId>
+            <artifactId>maven-bundle-plugin</artifactId>
+            <inherited>true</inherited>
+            <extensions>true</extensions>
+          </plugin>
 
           <plugin>
             <artifactId>maven-javadoc-plugin</artifactId>
@@ -594,6 +608,12 @@ limitations under the License.
       <email>will@apache.org</email>
       <organization>Cloudera</organization>
     </developer>
+    <developer>
+      <name>Roshan</name>
+      <id>roshannaik</id>
+      <email>roshannaik@apache.org</email>
+      <organization>Hortonworks</organization>
+    </developer>
   </developers>
 
   <organization>
@@ -736,6 +756,8 @@ limitations under the License.
                   <exclude>**/.classpath</exclude>
                   <exclude>**/.project</exclude>
                   <exclude>**/target/**</exclude>
+                  <exclude>**/derby.log</exclude>
+                  <exclude>**/metastore_db/</exclude>
                 </excludes>
               </configuration>
             </execution>
@@ -971,6 +993,7 @@ limitations under the License.
         <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-common</artifactId>
         <version>${hadoop.version}</version>
+        <optional>true</optional>
       </dependency>
 
       <dependency>
@@ -994,13 +1017,13 @@ limitations under the License.
       <dependency>
         <groupId>commons-collections</groupId>
         <artifactId>commons-collections</artifactId>
-        <version>3.2.1</version>
+        <version>3.2.2</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.derby</groupId>
         <artifactId>derby</artifactId>
-        <version>10.8.2.2</version>
+        <version>10.11.1.1</version>
       </dependency>
 
       <dependency>
@@ -1026,6 +1049,15 @@ limitations under the License.
         <artifactId>joda-time</artifactId>
         <version>2.1</version>
       </dependency>
+      <!-- Adding zookeeper as dependency, beacuse it was
+           pulling different version of zookeeper as transient
+           dependency from asynchbase. -->
+
+      <dependency>
+        <groupId>org.apache.zookeeper</groupId>
+        <artifactId>zookeeper</artifactId>
+        <version>${zookeeper.version}</version>
+       </dependency>
 
       <dependency>
         <groupId>org.apache.hadoop</groupId>
@@ -1065,159 +1097,177 @@ limitations under the License.
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-ng-configuration</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-ng-core</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-tools</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-ng-node</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-channels</groupId>
         <artifactId>flume-file-channel</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-channels</groupId>
         <artifactId>flume-jdbc-channel</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-channels</groupId>
         <artifactId>flume-kafka-channel</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-channels</groupId>
         <artifactId>flume-spillable-memory-channel</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
      <dependency>
        <groupId>org.apache.flume.flume-ng-channels</groupId>
        <artifactId>flume-recoverable-memory-channel</artifactId>
-       <version>1.6.0-SNAPSHOT</version>
+       <version>1.7.0-SNAPSHOT</version>
      </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sinks</groupId>
         <artifactId>flume-hdfs-sink</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.flume.flume-ng-sinks</groupId>
+        <artifactId>flume-hive-sink</artifactId>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sinks</groupId>
         <artifactId>flume-irc-sink</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sinks</groupId>
         <artifactId>flume-ng-hbase-sink</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sinks</groupId>
         <artifactId>flume-ng-elasticsearch-sink</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sinks</groupId>
         <artifactId>flume-ng-morphline-solr-sink</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sinks</groupId>
         <artifactId>flume-ng-kafka-sink</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sources</groupId>
         <artifactId>flume-scribe-source</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sources</groupId>
         <artifactId>flume-jms-source</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sources</groupId>
         <artifactId>flume-twitter-source</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-legacy-sources</groupId>
         <artifactId>flume-thrift-source</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-sources</groupId>
         <artifactId>flume-kafka-source</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-legacy-sources</groupId>
         <artifactId>flume-avro-source</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-ng-sdk</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.flume.flume-ng-sources</groupId>
+        <artifactId>flume-taildir-source</artifactId>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-ng-sdk</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
         <classifier>tests</classifier>
         <scope>test</scope>
       </dependency>
 
       <dependency>
-        <groupId>org.apache.flume.flume-ng-clients</groupId>
-        <artifactId>flume-ng-log4jappender</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <groupId>org.apache.flume</groupId>
+        <artifactId>flume-ng-auth</artifactId>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume.flume-ng-clients</groupId>
         <artifactId>flume-ng-log4jappender</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.flume.flume-ng-clients</groupId>
+        <artifactId>flume-ng-log4jappender</artifactId>
+        <version>1.7.0-SNAPSHOT</version>
         <classifier>jar-with-dependencies</classifier>
       </dependency>
 
       <dependency>
         <groupId>org.apache.flume</groupId>
         <artifactId>flume-ng-embedded-agent</artifactId>
-        <version>1.6.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
       </dependency>
 
       <dependency>
@@ -1304,7 +1354,7 @@ limitations under the License.
       </dependency>
       <dependency>
         <groupId>org.kitesdk</groupId>
-        <artifactId>kite-data-hcatalog</artifactId>
+        <artifactId>kite-data-hive</artifactId>
         <version>${kite.version}</version>
       </dependency>
       <dependency>
@@ -1331,6 +1381,18 @@ limitations under the License.
         <version>1.1.0</version>
       </dependency>
 
+      <dependency>
+        <groupId>org.apache.hive.hcatalog</groupId>
+        <artifactId>hive-hcatalog-streaming</artifactId>
+        <version>${hive.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.hive</groupId>
+        <artifactId>hive-cli</artifactId>
+        <version>${hive.version}</version>
+      </dependency>
+
       <!-- Dependency for Zk provider -->
       <dependency>
         <groupId>org.apache.curator</groupId>
@@ -1349,6 +1411,21 @@ limitations under the License.
         <artifactId>curator-test</artifactId>
         <version>2.6.0</version>
         <scope>test</scope>
+      </dependency>
+
+      <!-- Dependency for Hive Sink  -->
+      <dependency>
+        <groupId>xalan</groupId>
+        <artifactId>serializer</artifactId>
+        <version>2.7.2</version>
+        <scope>runtime</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>xalan</groupId>
+        <artifactId>xalan</artifactId>
+        <scope>runtime</scope>
+        <version>2.7.2</version>
       </dependency>
 
     </dependencies>
